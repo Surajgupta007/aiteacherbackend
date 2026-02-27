@@ -9,9 +9,10 @@ const uploadToCloudinary = (buffer, originalName) => {
         const stream = cloudinary.uploader.upload_stream(
             {
                 resource_type: 'raw',
+                type: 'upload',
+                access_mode: 'public',
                 folder: 'studysmart_docs',
-                public_id: `${Date.now()}_${path.parse(originalName).name}`,
-                format: 'pdf'
+                public_id: `${Date.now()}_${path.parse(originalName).name}.pdf`,
             },
             (error, result) => {
                 if (error) reject(error);
