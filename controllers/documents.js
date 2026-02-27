@@ -38,6 +38,7 @@ exports.uploadDocument = async (req, res, next) => {
             user: req.user.id,
             fileName: req.file.originalname,
             filePath: result.secure_url,  // Cloudinary URL
+            cloudinaryPublicId: result.public_id,
             fileSize: req.file.size
         });
 
@@ -47,6 +48,33 @@ exports.uploadDocument = async (req, res, next) => {
         });
     } catch (error) {
         console.error('Upload error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+};
+
+// @desc      Get a signed URL for a document (bypasses Cloudinary auth)
+// @route     GET /api/v1/documents/:id/file-url
+// @access    Private
+exports.getSignedFileUrl = async (req, res) => {
+    try {
+        const document = await Document.findById(req.params.id);
+        if (!document) return res.status(404).json({ success: false, error: 'Document not found' });
+        if (document.user.toString() !== req.user.id) return res.status(401).json({ success: false, error: 'Not authorized' });
+
+        // If we have a cloudinary public_id, generate a signed URL
+        if (document.cloudinaryPublicId) {
+            const signedUrl = cloudinary.url(document.cloudinaryPublicId, {
+                resource_type: 'auto',
+                sign_url: true,
+                secure: true,
+                expires_at: Math.floor(Date.now() / 1000) + 3600 // valid 1 hour
+            });
+            return res.json({ success: true, url: signedUrl });
+        }
+
+        // Fallback: return the stored filePath
+        res.json({ success: true, url: document.filePath });
+    } catch (error) {
         res.status(400).json({ success: false, error: error.message });
     }
 };
