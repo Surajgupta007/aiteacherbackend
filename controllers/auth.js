@@ -1,20 +1,10 @@
 const User = require('../models/User');
 const Quiz = require('../models/Quiz');
 const sendTokenResponse = require('../utils/sendTokenResponse');
-const path = require('path');
 const multer = require('multer');
+const cloudinary = require('../config/cloudinary');
 
-// Multer config for profile pictures
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, path.join(__dirname, '..', 'uploads'));
-    },
-    filename: function (req, file, cb) {
-        const ext = path.extname(file.originalname);
-        cb(null, `profile_${req.user.id}_${Date.now()}${ext}`);
-    }
-});
-
+// Multer config — memory storage so we can stream to Cloudinary
 const fileFilter = (req, file, cb) => {
     if (file.mimetype.startsWith('image')) {
         cb(null, true);
@@ -23,7 +13,7 @@ const fileFilter = (req, file, cb) => {
     }
 };
 
-exports.upload = multer({ storage, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } });
+exports.upload = multer({ storage: multer.memoryStorage(), fileFilter, limits: { fileSize: 5 * 1024 * 1024 } });
 
 // @desc      Register user
 // @route     POST /api/v1/auth/signup
@@ -117,14 +107,34 @@ exports.uploadProfilePicture = async (req, res) => {
             return res.status(400).json({ success: false, error: 'Please upload a file' });
         }
 
+        // Upload buffer to Cloudinary
+        const result = await new Promise((resolve, reject) => {
+            const stream = cloudinary.uploader.upload_stream(
+                {
+                    resource_type: 'image',
+                    folder: 'studysmart_profiles',
+                    public_id: `profile_${req.user.id}`,
+                    overwrite: true,
+                    transformation: [{ width: 400, height: 400, crop: 'fill', gravity: 'face' }]
+                },
+                (error, result) => {
+                    if (error) return reject(error);
+                    resolve(result);
+                }
+            );
+            stream.end(req.file.buffer);
+        });
+
+        // Save Cloudinary URL to user
         const user = await User.findByIdAndUpdate(
             req.user.id,
-            { profilePicture: `/uploads/${req.file.filename}` },
+            { profilePicture: result.secure_url },
             { new: true }
         );
 
         res.status(200).json({ success: true, data: user });
     } catch (error) {
+        console.error('Profile picture upload error:', error);
         res.status(400).json({ success: false, error: error.message });
     }
 };
