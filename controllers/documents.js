@@ -1,6 +1,26 @@
 const Document = require('../models/Document');
 const path = require('path');
 const fs = require('fs');
+const cloudinary = require('../config/cloudinary');
+
+// Helper: upload buffer to Cloudinary
+const uploadToCloudinary = (buffer, originalName) => {
+    return new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+            {
+                resource_type: 'raw',
+                folder: 'studysmart_docs',
+                public_id: `${Date.now()}_${path.parse(originalName).name}`,
+                format: 'pdf'
+            },
+            (error, result) => {
+                if (error) reject(error);
+                else resolve(result);
+            }
+        );
+        stream.end(buffer);
+    });
+};
 
 // @desc      Upload document
 // @route     POST /api/v1/documents
@@ -11,10 +31,13 @@ exports.uploadDocument = async (req, res, next) => {
             return res.status(400).json({ success: false, error: 'Please upload a PDF file' });
         }
 
+        // Upload to Cloudinary
+        const result = await uploadToCloudinary(req.file.buffer, req.file.originalname);
+
         const document = await Document.create({
             user: req.user.id,
             fileName: req.file.originalname,
-            filePath: req.file.path,
+            filePath: result.secure_url,  // Cloudinary URL
             fileSize: req.file.size
         });
 
@@ -23,6 +46,7 @@ exports.uploadDocument = async (req, res, next) => {
             data: document
         });
     } catch (error) {
+        console.error('Upload error:', error);
         res.status(400).json({ success: false, error: error.message });
     }
 };
