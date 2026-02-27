@@ -8,11 +8,10 @@ const uploadToCloudinary = (buffer, originalName) => {
     return new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
             {
-                resource_type: 'raw',
-                type: 'upload',
-                access_mode: 'public',
+                resource_type: 'auto',
                 folder: 'studysmart_docs',
-                public_id: `${Date.now()}_${path.parse(originalName).name}.pdf`,
+                public_id: `${Date.now()}_${path.parse(originalName).name}`,
+                format: 'pdf',
             },
             (error, result) => {
                 if (error) reject(error);
