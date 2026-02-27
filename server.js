@@ -40,7 +40,6 @@ const ai = require('./routes/ai');
 const flashcards = require('./routes/flashcards');
 const quizzes = require('./routes/quizzes');
 const revision = require('./routes/revision');
-const path = require('path');
 
 // Set static folder for uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
