@@ -1,88 +1,95 @@
 const Document = require('../models/Document');
 const path = require('path');
-const fs = require('fs');
 const cloudinary = require('../config/cloudinary');
 
-// Helper: upload buffer to Cloudinary
+// ============================
+// 🔥 Upload to Cloudinary
+// ============================
 const uploadToCloudinary = (buffer, originalName) => {
     return new Promise((resolve, reject) => {
+        console.log("🚀 Starting Cloudinary upload...");
+        console.log("📄 Original Name:", originalName);
+
         const stream = cloudinary.uploader.upload_stream(
             {
-                resource_type: 'auto',
+                resource_type: 'raw', // VERY IMPORTANT
+                type: 'upload',
                 folder: 'studysmart_docs',
-                public_id: `${Date.now()}_${path.parse(originalName).name}`,
-                format: 'pdf',
+                public_id: `${Date.now()}_${path.parse(originalName).name}`
             },
             (error, result) => {
-                if (error) reject(error);
-                else resolve(result);
+                if (error) {
+                    console.error("❌ Cloudinary Upload Error:", error);
+                    return reject(error);
+                }
+
+                console.log("✅ Upload Successful!");
+                console.log("RESOURCE TYPE:", result.resource_type);
+                console.log("DELIVERY TYPE:", result.type);
+                console.log("FORMAT:", result.format);
+                console.log("SECURE URL:", result.secure_url);
+
+                resolve(result);
             }
         );
+
         stream.end(buffer);
     });
 };
 
-// @desc      Upload document
-// @route     POST /api/v1/documents
-// @access    Private
-exports.uploadDocument = async (req, res, next) => {
+// ============================
+// 🔥 Upload Document
+// ============================
+exports.uploadDocument = async (req, res) => {
     try {
+        console.log("📥 Upload API Hit");
+
         if (!req.file) {
-            return res.status(400).json({ success: false, error: 'Please upload a PDF file' });
+            console.log("❌ No file in request");
+            return res.status(400).json({
+                success: false,
+                error: 'Please upload a PDF file'
+            });
         }
 
-        // Upload to Cloudinary
-        const result = await uploadToCloudinary(req.file.buffer, req.file.originalname);
+        console.log("📦 File Size:", req.file.size);
+        console.log("📦 Buffer Exists:", !!req.file.buffer);
+
+        const result = await uploadToCloudinary(
+            req.file.buffer,
+            req.file.originalname
+        );
+
+        console.log("💾 Saving document to MongoDB...");
 
         const document = await Document.create({
             user: req.user.id,
             fileName: req.file.originalname,
-            filePath: result.secure_url,  // Cloudinary URL
+            filePath: result.secure_url,
             cloudinaryPublicId: result.public_id,
             fileSize: req.file.size
         });
+
+        console.log("✅ Document Saved:", document._id);
 
         res.status(201).json({
             success: true,
             data: document
         });
+
     } catch (error) {
-        console.error('Upload error:', error);
-        res.status(400).json({ success: false, error: error.message });
+        console.error("🔥 Upload Controller Error:", error);
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
     }
 };
 
-// @desc      Get a signed URL for a document (bypasses Cloudinary auth)
-// @route     GET /api/v1/documents/:id/file-url
-// @access    Private
-exports.getSignedFileUrl = async (req, res) => {
-    try {
-        const document = await Document.findById(req.params.id);
-        if (!document) return res.status(404).json({ success: false, error: 'Document not found' });
-        if (document.user.toString() !== req.user.id) return res.status(401).json({ success: false, error: 'Not authorized' });
-
-        // If we have a cloudinary public_id, generate a signed URL
-        if (document.cloudinaryPublicId) {
-            const signedUrl = cloudinary.url(document.cloudinaryPublicId, {
-                resource_type: 'auto',
-                sign_url: true,
-                secure: true,
-                expires_at: Math.floor(Date.now() / 1000) + 3600 // valid 1 hour
-            });
-            return res.json({ success: true, url: signedUrl });
-        }
-
-        // Fallback: return the stored filePath
-        res.json({ success: true, url: document.filePath });
-    } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
-    }
-};
-
-// @desc      Get all documents for logged in user
-// @route     GET /api/v1/documents
-// @access    Private
-exports.getDocuments = async (req, res, next) => {
+// ============================
+// 🔥 Get All Documents
+// ============================
+exports.getDocuments = async (req, res) => {
     try {
         const documents = await Document.find({ user: req.user.id }).sort('-uploadDate');
         res.status(200).json({
@@ -95,21 +102,15 @@ exports.getDocuments = async (req, res, next) => {
     }
 };
 
-// @desc      Get single document
-// @route     GET /api/v1/documents/:id
-// @access    Private
-exports.getDocument = async (req, res, next) => {
+// ============================
+// 🔥 Get Single Document
+// ============================
+exports.getDocument = async (req, res) => {
     try {
         const document = await Document.findById(req.params.id);
 
-        if (!document) {
-            return res.status(404).json({ success: false, error: 'Document not found' });
-        }
-
-        // Make sure user owns document
-        if (document.user.toString() !== req.user.id) {
-            return res.status(401).json({ success: false, error: 'Not authorized to access this document' });
-        }
+        if (!document) return res.status(404).json({ success: false, error: 'Document not found' });
+        if (document.user.toString() !== req.user.id) return res.status(401).json({ success: false, error: 'Not authorized' });
 
         res.status(200).json({
             success: true,
@@ -120,34 +121,72 @@ exports.getDocument = async (req, res, next) => {
     }
 };
 
-// @desc      Delete document
-// @route     DELETE /api/v1/documents/:id
-// @access    Private
-exports.deleteDocument = async (req, res, next) => {
+// ============================
+// 🔥 Get Signed URL
+// ============================
+exports.getSignedFileUrl = async (req, res) => {
     try {
+        console.log("🔍 Fetching file URL for:", req.params.id);
+
         const document = await Document.findById(req.params.id);
 
         if (!document) {
-            return res.status(404).json({ success: false, error: 'Document not found' });
+            console.log("❌ Document not found");
+            return res.status(404).json({ success: false });
         }
 
-        // Make sure user owns document
         if (document.user.toString() !== req.user.id) {
-            return res.status(401).json({ success: false, error: 'Not authorized to access this document' });
+            console.log("❌ Unauthorized access attempt");
+            return res.status(401).json({ success: false });
         }
 
-        // Delete file from filesystem
-        fs.unlink(document.filePath, (err) => {
-            if (err) console.error(err);
+        console.log("✅ Returning URL:", document.filePath);
+
+        res.json({
+            success: true,
+            url: document.filePath
         });
+
+    } catch (error) {
+        console.error("🔥 getSignedFileUrl Error:", error);
+        res.status(400).json({ success: false });
+    }
+};
+
+// ============================
+// 🔥 Delete Document
+// ============================
+exports.deleteDocument = async (req, res) => {
+    try {
+        console.log("🗑 Delete Request:", req.params.id);
+
+        const document = await Document.findById(req.params.id);
+
+        if (!document)
+            return res.status(404).json({ success: false });
+
+        if (document.user.toString() !== req.user.id)
+            return res.status(401).json({ success: false });
+
+        if (document.cloudinaryPublicId) {
+            console.log("☁️ Deleting from Cloudinary:", document.cloudinaryPublicId);
+
+            await cloudinary.uploader.destroy(
+                document.cloudinaryPublicId,
+                { resource_type: 'raw' }
+            );
+        }
 
         await document.deleteOne();
 
+        console.log("✅ Document deleted");
+
         res.status(200).json({
-            success: true,
-            data: {}
+            success: true
         });
+
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        console.error("🔥 Delete Error:", error);
+        res.status(400).json({ success: false });
     }
 };
