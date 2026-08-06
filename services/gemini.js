@@ -1,48 +1,74 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 
-// Function to get the Gemini Model
-const getModel = () => {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    return genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+// Function to get the Groq client
+const getClient = () => {
+    return new Groq({ apiKey: process.env.GROQ_API_KEY });
 };
+
+const MODEL = 'llama-3.3-70b-versatile';
 
 exports.generateSummary = async (text) => {
-    const model = getModel();
-    const prompt = `Summarize the following document content in concise bullet points. Provide only the summary:\n\n${text}`;
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+    const client = getClient();
+    const completion = await client.chat.completions.create({
+        model: MODEL,
+        messages: [
+            {
+                role: 'user',
+                content: `Summarize the following document content in concise bullet points. Provide only the summary:\n\n${text}`
+            }
+        ],
+    });
+    return completion.choices[0].message.content;
 };
 
-exports.explainConcept = async (concept, context = "") => {
-    const model = getModel();
-    const prompt = `Explain the following concept "${concept}" simply but thoroughly. Include examples and key points.\nContext (if any): ${context}`;
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+exports.explainConcept = async (concept, context = '') => {
+    const client = getClient();
+    const completion = await client.chat.completions.create({
+        model: MODEL,
+        messages: [
+            {
+                role: 'user',
+                content: `Explain the following concept "${concept}" simply but thoroughly. Include examples and key points.\nContext (if any): ${context}`
+            }
+        ],
+    });
+    return completion.choices[0].message.content;
 };
 
 exports.generateFlashcards = async (text, num = 5) => {
-    const model = getModel();
-    const prompt = `Generate exactly ${num} flashcards based on the following text. 
+    const client = getClient();
+    const completion = await client.chat.completions.create({
+        model: MODEL,
+        messages: [
+            {
+                role: 'user',
+                content: `Generate exactly ${num} flashcards based on the following text. 
 Return ONLY a valid JSON array of objects, with each object having "question" and "answer" properties. 
 Ensure the output is pure JSON without markdown code blocks, beginning with [ and ending with ].
 
-Text: ${text}`;
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
+Text: ${text}`
+            }
+        ],
+    });
 
+    const responseText = completion.choices[0].message.content;
     try {
-        // Sanitize response to ensure it parses correctly if model includes markdown
         const cleanedJson = responseText.replace(/```json/gi, '').replace(/```/gi, '').trim();
         return JSON.parse(cleanedJson);
     } catch (err) {
-        console.error("Failed to parse flashcards JSON", err);
-        throw new Error("AI failed to generate valid flashcard data.");
+        console.error('Failed to parse flashcards JSON', err);
+        throw new Error('AI failed to generate valid flashcard data.');
     }
 };
 
-exports.generateQuiz = async (text, num = 5, difficulty = "medium") => {
-    const model = getModel();
-    const prompt = `Generate a ${num}-question multiple choice quiz based on the following text. The difficulty should be ${difficulty}.
+exports.generateQuiz = async (text, num = 5, difficulty = 'medium') => {
+    const client = getClient();
+    const completion = await client.chat.completions.create({
+        model: MODEL,
+        messages: [
+            {
+                role: 'user',
+                content: `Generate a ${num}-question multiple choice quiz based on the following text. The difficulty should be ${difficulty}.
 Return ONLY a valid JSON array of objects. Each object must have:
 "questionText" (string)
 "options" (array of exactly 4 strings)
@@ -51,39 +77,60 @@ Return ONLY a valid JSON array of objects. Each object must have:
 
 Ensure the output is pure JSON without markdown code blocks, beginning with [ and ending with ].
 
-Text: ${text}`;
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
+Text: ${text}`
+            }
+        ],
+    });
 
+    const responseText = completion.choices[0].message.content;
     try {
         const cleanedJson = responseText.replace(/```json/gi, '').replace(/```/gi, '').trim();
         return JSON.parse(cleanedJson);
     } catch (err) {
-        console.error("Failed to parse quiz JSON", err);
-        throw new Error("AI failed to generate valid quiz data.");
+        console.error('Failed to parse quiz JSON', err);
+        throw new Error('AI failed to generate valid quiz data.');
     }
 };
 
 exports.chatWithDocument = async (history, question, documentContext) => {
-    const model = getModel();
-    const chat = model.startChat({
-        history: history || [],
-    });
-    const prompt = `Using the following document context, please answer the user's question.
+    const client = getClient();
+
+    // Convert history to Groq message format
+    const messages = [
+        {
+            role: 'system',
+            content: `You are a helpful study assistant. Answer questions based on the following document context.
 If the answer is not in the context, use your general knowledge but mention that it's not explicitly in the document.
 
 Document Context:
-${documentContext.substring(0, 30000)} // limiting context to avoid token overflow
+${documentContext.substring(0, 30000)}`
+        },
+        ...(history || []).map(h => ({
+            role: h.role === 'model' ? 'assistant' : 'user',
+            content: h.parts?.[0]?.text || h.content || ''
+        })),
+        {
+            role: 'user',
+            content: question
+        }
+    ];
 
-Question: ${question}`;
+    const completion = await client.chat.completions.create({
+        model: MODEL,
+        messages,
+    });
 
-    const result = await chat.sendMessage(prompt);
-    return result.response.text();
+    return completion.choices[0].message.content;
 };
 
 exports.generateRevisionPlan = async (text, analytics, duration) => {
-    const model = getModel();
-    const prompt = `You are an intelligent exam preparation assistant.
+    const client = getClient();
+    const completion = await client.chat.completions.create({
+        model: MODEL,
+        messages: [
+            {
+                role: 'user',
+                content: `You are an intelligent exam preparation assistant.
 
 Analyze the following:
 
@@ -118,16 +165,17 @@ Structure your response exactly in this format as a valid JSON object. Do not wr
     "Tip 1",
     "Tip 2"
   ]
-}`;
+}`
+            }
+        ],
+    });
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
-
+    const responseText = completion.choices[0].message.content;
     try {
         const cleanedJson = responseText.replace(/```json/gi, '').replace(/```/gi, '').trim();
         return JSON.parse(cleanedJson);
     } catch (err) {
-        console.error("Failed to parse revision JSON", err);
-        throw new Error("AI failed to generate valid revision plan data.");
+        console.error('Failed to parse revision JSON', err);
+        throw new Error('AI failed to generate valid revision plan data.');
     }
 };
